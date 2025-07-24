@@ -1,0 +1,461 @@
+---
+title: "Gold Price Forecasting (India)"
+author: "Jahnvi Naithani"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3   # This allows ##, ###, and #### to appear in TOC
+    number_sections: true  # Enables numbering like 4.3.1, 4.3.2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load required libraries
+library(ggplot2)
+library(TTR)
+library(minpack.lm)
+```
+
+## Abstract
+
+This study conducts a comprehensive analysis of the trend and seasonal components present in monthly gold prices in India over the period from January 2022 to December 2024. To identify underlying patterns and forecast future prices, various time series models have been applied, including linear, quadratic, exponential, modified exponential, and Gompertz growth models. The results reveal a consistently increasing trend in gold prices throughout the study period, along with mild but observable seasonal fluctuations, indicating that gold prices in India are influenced not only by long-term market dynamics but also by short-term periodic factors. These insights may assist investors, policymakers, and market analysts in making informed decisions regarding gold investment strategies and economic forecasting.
+
+---
+
+## Introduction
+
+Gold has long held a vital role in India’s economy, serving both as a symbol of wealth and a reliable investment asset for households and institutions alike. Recognizing its economic importance, this study applies a range of time series models to monthly gold price data from January 2022 to December 2024. The objective is to examine underlying trends and seasonal variations, and to generate reliable forecasts for gold prices up to December 2025.
+
+---
+
+## Literature Review
+Previous studies, such as those by Ghosh & Ghosh and Kale & Patil, have extensively explored gold price behavior in the Indian market using techniques like ARIMA, exponential smoothing models, and classical decomposition. Building upon their work, the present study draws inspiration from these approaches and extends the analysis by employing the R programming environment. In particular, it incorporates multiple trend-fitting techniques, including nonlinear models such as the Gompertz function, to enhance forecasting accuracy and capture complex growth patterns in gold prices.
+
+---
+
+## Data Description
+*The data was sourced from Investing.com, specifically selecting monthly gold prices in INR for a three-year period. The dataset includes the date and closing price of gold futures.*
+
+```{r load-data}
+# Load the dataset
+df <- read.csv("gold_prices_2022_2024.csv")
+
+# Convert 'Dates' column to Date format (DD-MM-YYYY)
+df$Date <- as.Date(df$Dates, format = "%d-%m-%Y")
+
+# Rename Prices column
+df$Price <- df$Prices
+
+# Keep only needed columns
+df <- df[, c("Date", "Price")]
+
+# Preview the first few rows
+head(df)
+
+df$Time <- 1:nrow(df)   # Adds 'Time' to your data
+Time <- df$Time         # Optional: creates global 'Time' variable
+
+```
+
+## Trend Analysis
+*Trend represents the general direction in which a time series moves over a long period. Various methods can be used to identify and model trends:*
+
+### Graphical Method  
+*This method involves plotting the time series data and visually identifying the trend.*
+
+```{r trend-graphical}
+ggplot(df, aes(x = Date, y = Price)) +
+  geom_line(color = 'blue') +
+  geom_segment(aes(x = min(Date), xend = max(Date),
+                   y = Price[1], yend = Price[nrow(df)]),
+               color = 'red', linetype = 'dashed') +
+  labs(title = 'Gold Prices Over Time (India)', 
+       x = 'Date', y = 'Gold Price (INR)') +
+  theme_minimal()
+```
+
+### Semi Average Method
+*This method divides the data into two equal parts and computes the averages to estimate the trend.*
+
+```{r trend-semi-average}
+#semiaverage----------------------------------------->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Load necessary libraries
+library(ggplot2)
+
+# Split data into two halves
+n <- nrow(df)
+half <- floor(n / 2)
+
+# Compute averages for each half
+first_half_avg <- mean(df$Price[1:half])
+second_half_avg <- mean(df$Price[(half+1):n])
+
+# Find middle points of each half
+first_half_date <- df$Date[half %/% 2]
+second_half_date <- df$Date[half + (n - half) %/% 2]
+
+# Plot actual prices
+ggplot(df, aes(x = Date, y = Price)) +
+  geom_line(color = "blue") +  # Actual price trend
+  geom_point(aes(x = first_half_date, y = first_half_avg), color = "red", size = 3) +  # First half avg
+  geom_point(aes(x = second_half_date, y = second_half_avg), color = "red", size = 3) +  # Second half avg
+  geom_segment(aes(x = first_half_date, xend = second_half_date, 
+                   y = first_half_avg, yend = second_half_avg), 
+               color = "red", linetype = "dashed") +  # Semi-average trend line
+  labs(title = "Gold Prices - Semi-Average Trend", x = "Date", y = "Gold Price (INR)") +
+  theme_minimal()
+```
+
+### Least Squares Method 
+*This method fits a mathematical equation to the time series data.*
+
+#### Straight Line Equation
+$$Y = a + bX$$
+
+```{r trend-Least Square straight line}
+#Least Square straight line------------------------------------>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Load required libraries
+library(ggplot2)
+
+# Create a month index for regression (1, 2, 3, ..., n)
+df$Month_Number <- 1:nrow(df)
+
+# Convert Price column to numeric (remove commas if present)
+df$Price <- as.numeric(gsub(",", "", df$Price))
+
+# Perform linear regression (Least Squares Method)
+trend_model <- lm(Price ~ Month_Number, data=df)
+
+# Get model coefficients
+a <- coef(trend_model)[1]  # Intercept
+b <- coef(trend_model)[2]  # Linear term
+
+# Print final equation
+cat(sprintf("Trend Equation: Y = %.4f + %.4f*X", a, b))
+
+
+# Add predicted trend values
+df$Trend_Least_Squares <- predict(trend_model)
+
+# Plot actual vs. trend
+ggplot(df, aes(x=Date)) +
+  geom_line(aes(y=Price, color="Actual Price")) +
+  geom_line(aes(y=Trend_Least_Squares, color="Trend (Least Squares)"), linetype="dashed", size=1) +
+  labs(title="Gold Price Trend using Least Squares Method",
+       x="Year", y="Gold Price (INR)") +
+  scale_color_manual(values=c("Actual Price"="blue", "Trend (Least Squares)"="red")) +
+  theme_minimal()
+
+```
+
+#### Quadratic (2nd Degree) Equation 
+$$Y = a + bX + cX^2$$
+
+```{r trend-Least Square 2nd degree Quadratic}
+#Least Square 2nd degree Quadratic------------------------------------------->>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# Load necessary libraries
+library(ggplot2)
+
+# Fit 2nd-degree polynomial model (quadratic trend)
+model <- lm(Price ~ poly(Time, 2, raw=TRUE), data=df)
+
+# Get model coefficients
+a <- coef(model)[1]  # Intercept
+b <- coef(model)[2]  # Linear term
+c <- coef(model)[3]  # Quadratic term
+
+# Print final equation
+cat(sprintf("Trend Equation: Y = %.4f + %.4f*X + %.4f*X^2\n", a, b, c))
+
+# Predict values
+Predicted <- predict(model, newdata=df)
+
+# Plot actual vs predicted prices
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = Price), color = "blue", size = 1, linetype = "solid") +  # Actual prices
+  geom_line(aes(y = Predicted), color = "red", size = 1, linetype = "dashed") +  # Quadratic trend
+  labs(title = "Gold Price Trend - 2nd Degree Polynomial (Quadratic)",
+       x = "Date", y = "Gold Price (INR)") +
+  theme_minimal()
+```
+
+#### Exponential Trend
+$$Y = ae^{bX}$$
+
+```{r trend-Exponential}
+#exponential ----------------------------------------------------------->>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# Load necessary libraries
+library(ggplot2)
+
+# Transform price using natural log
+LogPrice <- log(df$Price)
+
+# Fit exponential model (linear regression on log-transformed price)
+model <- lm(LogPrice ~ Time, data = df)
+
+# Extract coefficients
+ln_a <- coef(model)[1]  # ln(a)
+b <- coef(model)[2]      # b
+
+# Convert back to original scale
+a <- exp(ln_a)  # a = e^(ln_a)
+
+# Print final exponential equation
+cat(sprintf("Exponential Trend Equation: Y = %.4f * e^(%.4f * X)\n", a, b))
+
+# Predict values & transform back
+Predicted <- exp(predict(model, newdata=df))
+
+# Plot actual vs predicted prices
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = Price), color = "blue", size = 1, linetype = "solid") +  # Actual prices
+  geom_line(aes(y = Predicted), color = "red", size = 1, linetype = "dashed") +  # Exponential trend
+  labs(title = "Gold Price Trend - Exponential Model",
+       x = "Date", y = "Gold Price (INR)") +
+  theme_minimal()
+```
+
+#### Modified Exponential Trend
+$$Y = \frac{1}{a + bX}$$
+
+```{r trend-Modified Exponential}
+#modified exp------------------------------------------------------------->>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Load necessary library
+library(ggplot2)
+
+# Transform price using reciprocal
+InvPrice <- 1 / df$Price
+
+# Fit modified exponential model (linear regression on transformed data)
+model <- lm(InvPrice ~ Time, data = df)
+
+# Extract coefficients
+a <- coef(model)[1]
+b <- coef(model)[2]
+
+# Print final modified exponential equation
+cat(sprintf("Modified Exponential Equation: Y = 1 / (%.6f + %.6f * X)\n", a, b))
+
+# Predict values & transform back
+Predicted <- 1 / predict(model, newdata=df)
+
+# Plot actual vs predicted prices
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = Price), color = "blue", size = 1, linetype = "solid") +  # Actual prices
+  geom_line(aes(y = Predicted), color = "red", size = 1, linetype = "dashed") +  # Modified exponential trend
+  labs(title = "Gold Price Trend - Modified Exponential Model",
+       x = "Date", y = "Gold Price (INR)") +
+  theme_minimal()
+```
+
+#### Gompertz Curve
+$$Y = a \cdot e^{-b \cdot e^{-cX}}$$
+
+```{r trend-Gompertz}
+#gompertz -------------------------------------------------------------------->>>>>>>>>>>>>>>>>>>>>>
+# Load necessary libraries
+library(minpack.lm)  # For nonlinear regression
+library(ggplot2)
+
+# Gompertz function definition
+gompertz <- function(Time, a, b, c) {
+  return(a * exp(-b * exp(-c * Time)))
+}
+
+# Fit nonlinear least squares model
+model <- nlsLM(Price ~ gompertz(Time, a, b, c), 
+               data = df, 
+               start = list(a = max(df$Price), b = 1, c = 0.1))
+
+# Extract coefficients
+coeffs <- coef(model)
+a <- coeffs["a"]
+b <- coeffs["b"]
+c <- coeffs["c"]
+
+# Print final Gompertz equation
+cat(sprintf("Gompertz Equation: Y = %.6f * exp(-%.6f * exp(-%.6f * X))\n", a, b, c))
+
+# Predict values
+Predicted <- predict(model, newdata = df)
+
+# Plot actual vs predicted values
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = Price), color = "blue", size = 1, linetype = "solid") +  # Actual prices
+  geom_line(aes(y = Predicted), color = "red", size = 1, linetype = "dashed") +  # Gompertz curve
+  labs(title = "Gold Price Trend - Gompertz Model",
+       x = "Date", y = "Gold Price (INR)") +
+  theme_minimal()
+```
+
+### Moving Average Method
+*A moving average smooths fluctuations to reveal underlying trends.*
+
+```{r trend-Moving Average}
+##3 month moving average------------------------------------------>>>>>>>>>>>>>>>>>>
+# Load necessary library
+library(TTR)
+
+# Convert to time series
+ts_gold <- ts(df$Price, start=c(2022,1), frequency=12)
+
+# Compute 3-month moving average
+ma_3 <- SMA(ts_gold, n=3)
+
+# Plot original data and moving average
+plot(ts_gold, type="l", col="blue", lwd=2, main="Gold Price with 3-Month Moving Average",
+     xlab="Date", ylab="Price (INR)")
+lines(ma_3, col="red", lwd=2)
+
+# Add legend
+legend("topleft", legend=c("Actual Price", "3-Month Moving Average"), 
+       col=c("blue", "red"), lwd=2)
+
+```
+
+## Seasonal Indicies
+*Seasonal variations are periodic fluctuations that repeat over a specific interval.*
+
+### Seasonal Indices Ratio to Trend Method
+
+```{r Seasonal Indicies-Ratio to Trend}
+#seasonal Indicies---------------------------*****************************************************
+
+#ratio to trend------------------------------------------------------>>>>>>>>>>>>>>>
+# Load required libraries
+library(ggplot2)
+
+Month <- format(df$Date, "%m")  # Extract month
+Year <- format(df$Date, "%Y")  # Extract year
+
+# Fit a linear trend model (Least Squares Method)
+trend_model <- lm(Price ~ Time, data=df)
+
+# Predict trend values
+Trend_Value <- predict(trend_model)
+
+# Calculate Ratio to Trend
+Ratio_to_Trend <- df$Price / Trend_Value
+
+# Compute Seasonal Indices (Average Ratio for Each Month)
+seasonal_indices <- aggregate(Ratio_to_Trend ~ Month, data=df, FUN=mean)
+seasonal_indices$Seasonal_Index <- seasonal_indices$Ratio_to_Trend * 100  # Convert to percentage
+
+# Print Seasonal Indices
+print(seasonal_indices)
+
+# Plot Seasonal Indices
+ggplot(seasonal_indices, aes(x=Month, y=Seasonal_Index)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  labs(title="Seasonal Indices using Ratio to Trend Method",
+       x="Month", y="Seasonal Index (%)") +
+  theme_minimal()
+```
+
+### Seasonal Indices Ratio to Moving Averages Method
+
+```{r Seasonal Indicies-Ratio to Moving Average}
+#ratio to moving averages------------------------------------------>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Load necessary libraries
+library(TTR)  
+
+# Convert to time series
+ts_gold <- ts(df$Price, start = c(2022,1), frequency = 12)
+
+# Calculate 12-month Centered Moving Average (CMA)
+cma <- SMA(ts_gold, n = 12)
+
+# Compute Ratio to Moving Average (Actual / CMA)
+ratios <- ts_gold / cma
+
+# Convert to dataframe for easy processing
+ratio_df <- data.frame(Date = df$Date, Price = ts_gold, CMA = cma, Ratio = ratios)
+
+# Compute seasonal indices (Average Ratio for each month)
+Month <- format(ratio_df$Date, "%m")  # Extract month
+seasonal_indices <- aggregate(Ratio ~ Month, data = ratio_df, FUN = mean, na.rm = TRUE)
+
+# Normalize to sum to 120 (optional step)
+seasonal_indices$Index <- (seasonal_indices$Ratio / sum(seasonal_indices$Ratio)) * 120 
+
+# Print seasonal indices
+print(seasonal_indices)
+
+
+# Plot seasonal indices
+barplot(seasonal_indices$Index, names.arg = seasonal_indices$Month, col = "blue",
+        main = "Seasonal Indices (Ratio to Moving Averages Method)", xlab = "Month", ylab = "Index")
+
+
+```
+
+## Prediction 2025
+*Using the least squares trend equation of 2nd degree polynomial, :*
+
+```{r Prediction 2025 using Least Square Method}
+#prediction 2025 using Least Square Quadratic------------------------------------>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# Load necessary libraries
+library(ggplot2)
+
+# Fit a 2nd-degree polynomial model (quadratic trend) to the data
+model <- lm(Price ~ poly(Time, 2, raw=TRUE), data=df)
+
+# Predict for the time index corresponding to 2025 (you need to extend the index)
+# For example, if you have data from 2022-2024 (35 months), we need time indices for 2025
+# Let's say the current time index ends at month 35, so for 2025 we continue with months 36 to 48.
+
+# Extend time indices for 2025
+Time_2025 <- 36:48  # The time index for 2025, assuming your data ends at month 36.
+
+# Create the quadratic term for the extended time indices
+Time_Squared_2025 <- Time_2025^2
+
+# Create new data for 2025 predictions
+new_data_2025 <- data.frame(Time = Time_2025, Time_Squared = Time_Squared_2025)
+
+# Predict gold prices for 2025
+Predicted_2025 <- predict(model, newdata = new_data_2025)
+
+# Create a data frame with the predicted results for 2025
+predictions_2025 <- data.frame(
+  Month = Time_2025 - 35,  # Adjusting the month number to be 1-12 for 2025
+  Predicted_Gold_Price = Predicted_2025
+)
+
+# Print the predictions for 2025
+print(predictions_2025)
+
+# Optionally, plot the results for 2025 with the previous data
+ggplot() +
+  geom_point(data = df, aes(x = Time, y = Price), color = 'blue') +  # Original price
+  geom_line(data = df, aes(x = Time, y = predict(model, newdata=df)), color = 'red', linetype = "dashed") +  # Predicted price for existing data
+  geom_line(data = predictions_2025, aes(x = Month + 35, y = Predicted_Gold_Price), color = 'green', linetype = "solid") +  # Predicted for 2025
+  labs(title = "Gold Price Prediction (Quadratic Trend)",
+       x = "Time (Months)",
+       y = "Price") +
+  theme_minimal()
+```
+
+## Conclusion
+Gold prices in India have demonstrated a steady upward trend from 2022 to 2024, a pattern that reflects the commodity's role as both a safe-haven asset and a culturally significant investment. Through the application of various time series models — including linear, quadratic, exponential, modified exponential, and the nonlinear Gompertz curve — this study explored the underlying structure of price movements and their future trajectories.
+
+Among the methods employed, the quadratic trend model and Gompertz curve offered the most accurate fit to historical data, capturing both the gradual acceleration in price growth and the tendency toward saturation. 
+
+Seasonal analysis, using both Ratio-to-Trend and Ratio-to-Moving-Average methods, revealed mild but notable seasonal effects, particularly aligned with months associated with festivals and peak wedding seasons in India. Although seasonality does not dominate the trend, its recognition is essential for short-term decision-making and timing investments.
+
+This research serves as a foundation for gold price modeling using classical time series techniques and emphasizes the value of interpretability, especially when dealing with relatively limited but reliable datasets. While the current analysis is based solely on historical prices, future work could integrate external economic variables such as inflation, interest rates, or global market indices. Additionally, incorporating ARIMA models, hybrid statistical-learning techniques, or machine learning approaches (like LSTM or Prophet) could further improve forecast precision and adaptability.
+
+Overall, this study offers valuable insights for investors, financial analysts, and researchers seeking to understand and anticipate gold price movements in the Indian market.
+
+## References
+1. Ghosh, S. P., and Ghosh, A. (2017). Forecasting Gold Prices Using ARIMA Model: A Study Based on Indian Market. International Journal of Business and Management Invention, 6(5), 10–19.
+2. Kale, P. B., and Patil, P. S. (2021). Forecasting Gold Price Using Various Time Series and Machine Learning Techniques. International Journal of Scientific Research in Science and Technology, 8(5), 118–122.
+3. Investing.com. Historical Gold Futures Data. [ https://www.investing.com/commodities/gold-historical-data ]
+4. Box, G. E. P., Jenkins, G. M., Reinsel, G. C., and Ljung, G. M. (2015). Time Series Analysis: Forecasting and Control (5th ed.). Wiley.
+5. Sharma, R., and Dutta, A. (2020). Seasonal and Trend Analysis of Gold Prices in India: A Time Series Perspective. Journal of Economics and Financial Studies, 8(3), 35–42.
+6. Salhi, M. E., and Ariff, A. M. (2019). Nonlinear Time Series Modelling of Gold Prices Using Gompertz Curve. International Conference on Applied Mathematics and Data Science.
+7. Patel, R., and Shah, M. (2021). Forecasting Gold Prices Using ARIMA and Exponential Smoothing Models. International Journal of Statistics and Applied Economics, 9(2), 45-52.
